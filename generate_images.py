@@ -1,11 +1,13 @@
-# generate_images.py
+# generate_images.py (updated to use JSON2Video media upload)
 import os, json, time, urllib.parse
 from pathlib import Path
 import httpx
 
 POLLINATIONS = "https://gen.pollinations.ai"
 POLL_KEY = os.environ["POLLINATIONS_API_KEY"]
-CATBOX = "https://catbox.moe/user/api.php"
+JSON2VIDEO_KEY = os.environ["JSON2VIDEO_API_KEY"]
+J2V_MEDIA_ENDPOINT = "https://api.json2video.com/v2/media/file"
+
 IMG_DIR = Path("images")
 IMG_DIR.mkdir(exist_ok=True)
 
@@ -17,7 +19,7 @@ def generate_image(prompt: str, index: int) -> Path:
     encoded = urllib.parse.quote(prompt, safe="")
     url = f"{POLLINATIONS}/image/{encoded}"
     params = {
-        "model": "flux",       # reliable image model
+        "model": "flux",
         "width": 720,
         "height": 1280,        # 9:16 vertical
         "nologo": "true",
@@ -45,31 +47,55 @@ def generate_image(prompt: str, index: int) -> Path:
     raise RuntimeError(f"Failed to generate image {index}")
 
 
-def upload_to_catbox(image_path: Path) -> str:
-    """Upload to Catbox (free, no auth) and return public URL."""
+def upload_to_json2video(image_path: Path, index: int) -> str:
+    """
+    Upload an image to JSON2Video's media library and return its public URL.
+    Uses the two-step presigned URL flow.
+    """
+    file_size = image_path.stat().st_size
+    filename = f"scene_{index:02d}.jpg"
+
+    # Step 1: Request a presigned upload URL
+    register_payload = {
+        "name": filename,
+        "contentType": "image/jpeg",
+        "size": file_size,
+        "folder": "shorts-assets",
+    }
+
+    register_resp = httpx.post(
+        J2V_MEDIA_ENDPOINT,
+        headers={"x-api-key": JSON2VIDEO_KEY, "Content-Type": "application/json"},
+        json=register_payload,
+        timeout=30.0,
+    )
+    register_resp.raise_for_status()
+    data = register_resp.json()
+
+    upload_url = data["uploadUrl"]
+    file_url = data["fileUrl"]
+
+    # Step 2: PUT the file bytes to the presigned URL
     with open(image_path, "rb") as f:
-        r = httpx.post(
-            CATBOX,
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": (image_path.name, f, "image/jpeg")},
-            timeout=60.0,
+        put_resp = httpx.put(
+            upload_url,
+            headers={"Content-Type": "image/jpeg"},
+            content=f,
+            timeout=120.0,
         )
-    r.raise_for_status()
-    url = r.text.strip()
-    if not url.startswith("http"):
-        raise RuntimeError(f"Catbox upload failed: {url}")
-    print(f"   → Hosted: {url}")
-    return url
+    put_resp.raise_for_status()
+
+    print(f"   → Uploaded to JSON2Video CDN: {file_url}")
+    return file_url
 
 
 # --- Main ---
 public_urls = []
 for i, scene in enumerate(script["scenes"], start=1):
-    path = generate_image(scene["image_prompt"], i)
-    url = upload_to_catbox(path)
-    public_urls.append(url)
-    time.sleep(1)
+    local_path = generate_image(scene["image_prompt"], i)
+    cdn_url = upload_to_json2video(local_path, i)
+    public_urls.append(cdn_url)
+    time.sleep(1)  # small pause between uploads
 
-# Save the URLs for the JSON2Video step
 Path("image_urls.json").write_text(json.dumps(public_urls, indent=2), encoding="utf-8")
-print(f"✅ All {len(public_urls)} images hosted. URLs saved to image_urls.json")
+print(f"✅ All {len(public_urls)} images uploaded to JSON2Video CDN")
