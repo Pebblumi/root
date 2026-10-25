@@ -1,11 +1,23 @@
 # generate_script.py
-import os, json
+import os, json, random
 from pathlib import Path
 from google import genai
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-TRENDING_TOPIC = os.environ.get("TRENDING_TOPIC", "Tesla flying car")
+DEFAULT_TOPICS = [
+    "AI is changing how we make videos",
+    "The most surprising science facts of 2026",
+    "How AI learns to see the world",
+    "A day in the life of an AI assistant",
+]
+
+# Fallback chain: explicit env var → random default
+TRENDING_TOPIC = os.environ.get("TRENDING_TOPIC", "").strip()
+if not TRENDING_TOPIC:
+    TRENDING_TOPIC = random.choice(DEFAULT_TOPICS)
+
+print(f"📌 Using topic: {TRENDING_TOPIC}")
 
 SYSTEM_PROMPT = """
 You are a viral YouTube Shorts scriptwriter.
@@ -20,7 +32,7 @@ Return ONLY valid JSON with this exact structure:
     {
       "scene_number": 1,
       "on_screen_text": "Text overlay (max 8 words)",
-      "video_prompt": "Detailed visual prompt for 9:16 vertical text-to-video. Specify action, camera angle, mood."
+      "image_prompt": "Detailed visual prompt for a 9:16 vertical AI image. Specify subject, style, lighting, mood. No text in image."
     }
   ]
 }
@@ -30,17 +42,15 @@ Rules:
 - Scene 1 must be a HOOK within the first 2 seconds.
 - Use on_screen_text for captions (Shorts are often watched muted).
 - End with a loop-friendly final frame.
-- Keep all content brand-safe and suitable for a general audience.
+- Keep content brand-safe and suitable for general audiences.
 """
 
 response = client.models.generate_content(
-    model="gemini-3-flash-preview",   # free-tier model
+    model="gemini-3-flash-preview",
     contents=f"{SYSTEM_PROMPT}\n\nTrending topic: {TRENDING_TOPIC}",
-    config={"response_mime_type": "application/json"},  # force JSON
+    config={"response_mime_type": "application/json"},
 )
 
 story = json.loads(response.text.strip())
 Path("script.json").write_text(json.dumps(story, indent=2), encoding="utf-8")
-print(f"✅ Script saved for: {TRENDING_TOPIC}")
-print(f"Title: {story['title']}")
-print(f"Scenes: {len(story['scenes'])}")
+print(f"✅ Script saved. Title: {story['title']} | Scenes: {len(story['scenes'])}")
