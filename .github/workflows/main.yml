@@ -2,7 +2,7 @@ name: Root
 
 on:
   workflow_dispatch:  
-
+  
 jobs:
   build-short:
     runs-on: ubuntu-latest
@@ -20,16 +20,18 @@ jobs:
       - name: Generate script with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TRENDING_TOPIC: ${{ vars.TRENDING_TOPIC }} 
+          TRENDING_TOPIC: ${{ vars.TRENDING_TOPIC }}
         run: python generate_script.py
 
-      - name: Generate clips with Pollinations
+      - name: Generate images with Pollinations + host on Catbox
         env:
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
-        run: python generate_clips.py
+        run: python generate_images.py
 
-      - name: Compile 60-second vertical video
-        run: python compile_video.py
+      - name: Render 60-second video with JSON2Video
+        env:
+          JSON2VIDEO_API_KEY: ${{ secrets.JSON2VIDEO_API_KEY }}
+        run: python json2video_render.py
 
       - name: Upload to YouTube
         env:
